@@ -1,0 +1,106 @@
+{
+  "parameters": {
+    "ph": {
+      "ranges": [
+        {"min": 0.0, "max": 6.9, "score": 10, "comment": "Критически низкий pH"},
+        {"min": 6.91, "max": 7.1, "score": 4, "comment": "Низкий pH"},
+        {"min": 7.11, "max": 8.0, "score": 0, "comment": "Нормальный pH"}
+      ],
+      "unit": "ед.",
+      "description": "Уровень pH крови"
+    },
+    "age": {
+      "ranges": [
+        {"min": 0, "max": 1, "score": 4, "comment": "Новорожденный младше 1 часа"},
+        {"min": 1, "max": 168, "score": 0, "comment": "Новорожденный старше 1 часа"}
+      ],
+      "unit": "часы",
+      "description": "Возраст ребенка"
+    },
+    "apgar": {
+      "ranges": [
+        {"min": 0, "max": 0, "score": 8, "comment": "Крайне тяжелое состояние"},
+        {"min": 1, "max": 1, "score": 5, "comment": "Тяжелое состояние"},
+        {"min": 2, "max": 2, "score": 2, "comment": "Средняя степень асфиксии"},
+        {"min": 3, "max": 3, "score": 2, "comment": "Легкая степень асфиксии"},
+        {"min": 4, "max": 10, "score": 0, "comment": "Нормальное состояние"}
+      ],
+      "unit": "баллы",
+      "description": "Оценка по шкале Апгар"
+    },
+    "weight": {
+      "ranges": [
+        {"min": 0, "max": 750, "score": 5, "comment": "Экстремально низкая масса тела"},
+        {"min": 751, "max": 1000, "score": 2, "comment": "Очень низкая масса тела"},
+        {"min": 1001, "max": 1500, "score": 1, "comment": "Низкая масса тела"},
+        {"min": 1501, "max": 5000, "score": 0, "comment": "Нормальная масса тела"}
+      ],
+      "unit": "граммы",
+      "description": "Вес при рождении"
+    },
+    "pao2": {
+      "ranges": [
+        {"min": 0.0, "max": 3.0, "score": 2, "comment": "Критически низкий уровень кислорода"},
+        {"min": 3.1, "max": 50.0, "score": 0, "comment": "Достаточный уровень кислорода"}
+      ],
+      "unit": "кПа",
+      "description": "Парциальное давление кислорода"
+    },
+    "malformations": {
+      "ranges": [
+        {"min": 0, "max": 0, "score": 0, "comment": "Врожденные пороки отсутствуют"},
+        {"min": 1, "max": 1, "score": 5, "comment": "Наличие врожденных пороков"}
+      ],
+      "unit": "",
+      "description": "Врожденные пороки развития"
+    },
+    "intubation": {
+      "ranges": [
+        {"min": 0, "max": 0, "score": 0, "comment": "Ребенок не интубирован"},
+        {"min": 1, "max": 1, "score": 6, "comment": "Ребенок интубирован"}
+      ],
+      "unit": "",
+      "description": "Интубация трахеи"
+    }
+  },
+  "risk_levels": [
+    {
+      "minScore": 0,
+      "maxScore": 9,
+      "diagnosis": "Низкий риск",
+      "recommendation": "Стандартные меры предосторожности при транспортировке",
+      "probabilityRange": "0-5%"
+    },
+    {
+      "minScore": 10,
+      "maxScore": 19,
+      "diagnosis": "Умеренный риск",
+      "recommendation": "Транспортировка с мониторингом жизненных показателей",
+      "probabilityRange": "5-15%"
+    },
+    {
+      "minScore": 20,
+      "maxScore": 29,
+      "diagnosis": "Высокий риск",
+      "recommendation": "Требуется сопровождение реанимационной бригады",
+      "probabilityRange": "15-30%"
+    },
+    {
+      "minScore": 30,
+      "maxScore": 40,
+      "diagnosis": "Критический риск",
+      "recommendation": "Экстренная транспортировка в реанимационном сопровождении",
+      "probabilityRange": "30-100%"
+    }
+  ],
+  "probabilityFormula": {
+    "intercept": 25.53,
+    "ageCoef": -0.025,
+    "apgarCoef": 0.29,
+    "weightCoef": 0.000207,
+    "pao2Coef": -0.00088,
+    "phCoef": 3.74,
+    "malformationsCoef": -1.75,
+    "intubationCoef": -1.23
+  }
+}
