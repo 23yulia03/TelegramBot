@@ -27,7 +27,7 @@ public class RiskBot extends TelegramLongPollingBot {
     @Override
     public String getBotToken() {
         Dotenv dotenv = Dotenv.configure()
-                .filename("token.env") // если не .env
+                .filename("token.env")
                 .load();
         return dotenv.get("BOT_TOKEN");
     }
@@ -47,9 +47,8 @@ public class RiskBot extends TelegramLongPollingBot {
 
             if (text.startsWith("/")) {
                 handleCommand(chatId, text);
-                // Сбрасываем состояние при командах
                 if ("/start".equals(text) || "/help".equals(text)) {
-                    userState.reset();
+                    userState.reset(); // сбрасываем параметры
                 }
             } else {
                 handleParameterInput(chatId, text, userState);
@@ -76,28 +75,36 @@ public class RiskBot extends TelegramLongPollingBot {
         try {
             String paramName = userState.getCurrentParameterName();
 
-            // ✅ Проверка и парсинг значения
+            // Проверка введенного значения на соответствие диапазону
+            boolean isValid = false;
+
             if (paramName.contains("pH крови") || paramName.contains("PaO2")) {
-                Double.parseDouble(text); // просто проверка
-            } else if (paramName.contains("Возраст") ||
-                    paramName.contains("Апгар") ||
-                    paramName.contains("Вес")) {
-                Integer.parseInt(text);
+                Double value = Double.parseDouble(text);
+                isValid = validateRange(paramName, value);
+            } else if (paramName.contains("Возраст") || paramName.contains("Апгар") || paramName.contains("Вес")) {
+                Integer value = Integer.parseInt(text);
+                isValid = validateRange(paramName, value);
             } else if (paramName.contains("пороки") || paramName.contains("Интубация")) {
                 int value = Integer.parseInt(text);
                 if (value != 0 && value != 1) {
                     throw new IllegalArgumentException("Введите 0 или 1.");
                 }
+                isValid = true;
             }
 
-            // ✅ Добавляем только если всё прошло успешно
+            if (!isValid) {
+                sendResponse(chatId, "⚠️ Значение не в допустимом диапазоне. Пожалуйста, введите корректное значение.");
+                return;  // Не продолжаем, если значение неверное
+            }
+
+            // Продолжаем, если значение корректное
             userState.addParameterValue(text);
 
-            // ✅ Проверяем — завершены ли все параметры
             if (userState.isComplete()) {
                 processFinalParameters(chatId, userState);
             } else {
-                sendResponse(chatId, "Введите следующий параметр: " + getFormattedParameterPrompt(userState.getCurrentParameterName()));
+                sendResponse(chatId, "Введите следующий параметр: " +
+                        getFormattedParameterPrompt(userState.getCurrentParameterName()));
             }
 
         } catch (NumberFormatException e) {
@@ -107,6 +114,48 @@ public class RiskBot extends TelegramLongPollingBot {
         }
     }
 
+    private boolean validateRange(String paramName, double value) {
+        RiskDataStorage.ParameterConfig config = storage.getParameterConfig(getParameterKey(paramName));
+        for (RiskDataStorage.Range range : config.getRanges()) {
+            if (value >= range.getMin() && value <= range.getMax()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean validateRange(String paramName, int value) {
+        RiskDataStorage.ParameterConfig config = storage.getParameterConfig(getParameterKey(paramName));
+        for (RiskDataStorage.Range range : config.getRanges()) {
+            if (value >= range.getMin() && value <= range.getMax()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String getParameterKey(String paramName) {
+        switch (paramName) {
+            case "pH крови":
+                return "ph";
+            case "Возраст в часах":
+                return "age";
+            case "Оценка по Апгар":
+                return "apgar";
+            case "Вес при рождении":
+                return "weight";
+            case "PaO2":
+                return "pao2";
+            case "Врожденные пороки (0 - нет, 1 - да)":
+                return "malformations";
+            case "Интубация (0 - нет, 1 - да)":
+                return "intubation";
+            default:
+                return "";
+        }
+    }
+
+
     private String getFormattedParameterPrompt(String paramName) {
         switch (paramName) {
             case "pH крови":
@@ -114,15 +163,15 @@ public class RiskBot extends TelegramLongPollingBot {
             case "Возраст в часах":
                 return "Возраст в часах (возраст новорождённого на момент оценки; например: 5)";
             case "Оценка по Апгар":
-                return "Оценка по шкале Апгар (от 0 до 10; оценивает состояние ребёнка сразу после рождения, например: 6)";
+                return "Оценка по шкале Апгар (от 0 до 10; например: 6)";
             case "Вес при рождении":
                 return "Вес при рождении в граммах (например: 3200)";
             case "PaO2":
                 return "PaO2 в кПа (парциальное давление кислорода в артериальной крови; например: 4.5)";
             case "Врожденные пороки (0 - нет, 1 - да)":
-                return "Врожденные пороки: введите 0 (нет пороков) или 1 (есть пороки)";
+                return "Врожденные пороки: введите 0 (нет) или 1 (есть)";
             case "Интубация (0 - нет, 1 - да)":
-                return "Интубация: введите 0 (не была проведена) или 1 (проводилась интубация)";
+                return "Интубация: введите 0 (нет) или 1 (да)";
             default:
                 return paramName;
         }
@@ -145,7 +194,6 @@ public class RiskBot extends TelegramLongPollingBot {
             String результат = buildAssessmentResponse(баллы, вероятность, pH, возрастЧасы, апгар, вес, paO2, пороки, интубация);
             sendResponse(chatId, результат);
 
-            // Сбрасываем состояние после завершения
             userState.reset();
         } catch (Exception e) {
             sendErrorResponse(chatId, "Ошибка расчета: " + e.getMessage());
@@ -156,8 +204,6 @@ public class RiskBot extends TelegramLongPollingBot {
     private int calculateHermansenScore(double pH, int возрастЧасы, int апгар, int вес,
                                         double paO2, int пороки, int интубация) {
         int баллы = 0;
-
-        // Получаем баллы из конфигурации для каждого параметра
         баллы += storage.getParameterConfig("ph").findRange(pH).getScore();
         баллы += storage.getParameterConfig("age").findRange(возрастЧасы).getScore();
         баллы += storage.getParameterConfig("apgar").findRange(апгар).getScore();
@@ -165,7 +211,6 @@ public class RiskBot extends TelegramLongPollingBot {
         баллы += storage.getParameterConfig("pao2").findRange(paO2).getScore();
         баллы += storage.getParameterConfig("malformations").findRange(пороки).getScore();
         баллы += storage.getParameterConfig("intubation").findRange(интубация).getScore();
-
         return баллы;
     }
 
@@ -185,8 +230,7 @@ public class RiskBot extends TelegramLongPollingBot {
         ответ.append("⚕️ Результаты оценки риска транспортировки ⚕️\n\n");
         ответ.append("▉ Общий балл: ").append(баллы).append(" из 40\n");
         ответ.append("▉ Диагноз: ").append(уровеньРиска.getDiagnosis()).append("\n");
-        ответ.append("▉ Вероятность: ").append(df.format(вероятность))
-                .append(" (").append(уровеньРиска.getProbabilityRange()).append(")\n\n");
+        ответ.append("▉ Вероятность: ").append(уровеньРиска.getProbabilityRange()).append("\n\n");
 
         ответ.append("📋 Детализация параметров:\n");
         ответ.append(formatParameterDetail("pH крови", pH, "ph"));
@@ -198,8 +242,6 @@ public class RiskBot extends TelegramLongPollingBot {
         ответ.append(formatParameterDetail("Интубация", интубация, "intubation"));
 
         ответ.append("\n🚑 Рекомендации:\n").append(уровеньРиска.getRecommendation());
-
-        // Добавлено напоминание
         ответ.append("\n\n🔁 Для нового тестирования введите /start");
 
         return ответ.toString();
@@ -214,13 +256,22 @@ public class RiskBot extends TelegramLongPollingBot {
 
     private void sendWelcomeMessage(String chatId) throws TelegramApiException {
         UserState userState = userStates.computeIfAbsent(chatId, k -> new UserState());
-        userState.reset();
 
-        String message = "👶 Добро пожаловать в бот оценки риска транспортировки новорожденных!\n\n" +
-                "Бот будет запрашивать параметры по одному.\n\n" +
-                "Введите /help для подробной инструкции или начните сразу с ввода параметров. \n\n" +
-                "Первый параметр: " + userState.getCurrentParameterName() + "(уровень кислотности крови; например: 7.2)";
-        sendResponse(chatId, message);
+        if (userState.isSkipWelcome()) {
+            userState.reset();
+            sendResponse(chatId, "Первый параметр: " +
+                    getFormattedParameterPrompt(userState.getCurrentParameterName()));
+        } else {
+            userState.reset();
+            String message = "👶 Добро пожаловать в бот оценки риска транспортировки новорожденных!\n\n" +
+                    "Бот будет запрашивать параметры по одному.\n\n" +
+                    "Введите /help для подробной инструкции или начните сразу с ввода параметров. \n\n" +
+                    "Первый параметр: " +
+                    getFormattedParameterPrompt(userState.getCurrentParameterName());
+            sendResponse(chatId, message);
+        }
+
+        userState.setSkipWelcome(false); // сбрасываем после старта
     }
 
     private void sendHelpMessage(String chatId) throws TelegramApiException {
@@ -243,9 +294,12 @@ public class RiskBot extends TelegramLongPollingBot {
                 "   - Вероятность неблагоприятного исхода\n" +
                 "   - Подробную интерпретацию\n" +
                 "   - Рекомендации по транспортировке\n\n" +
-                "Пример ввода: 7.25, 2, 5, 1800, 4.8, 0, 1 \n\n" +
-                "Если вы ознакомились с инструкцией, введите /start, чтобы начать ввод параметров";
+                "Пример ввода: 7.25, 2, 5, 1800, 4.8, 0, 1\n\n" +
+                "Если вы ознакомились с инструкцией, введите /start, чтобы начать ввод параметров.";
         sendResponse(chatId, message);
+
+        // пометить, что пользователь ознакомился
+        userStates.computeIfAbsent(chatId, k -> new UserState()).setSkipWelcome(true);
     }
 
     private void sendResponse(String chatId, String text) throws TelegramApiException {
@@ -265,6 +319,7 @@ public class RiskBot extends TelegramLongPollingBot {
 
     private static class UserState {
         private int currentParamIndex = 0;
+        private boolean skipWelcome = false;
         private final List<String> parameterValues = new ArrayList<>();
         private final String[] parameterNames = {
                 "pH крови",
@@ -292,6 +347,14 @@ public class RiskBot extends TelegramLongPollingBot {
         public void reset() {
             currentParamIndex = 0;
             parameterValues.clear();
+        }
+
+        public boolean isSkipWelcome() {
+            return skipWelcome;
+        }
+
+        public void setSkipWelcome(boolean skipWelcome) {
+            this.skipWelcome = skipWelcome;
         }
     }
 }
