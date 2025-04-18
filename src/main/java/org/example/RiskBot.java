@@ -8,12 +8,12 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.text.DecimalFormat;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 public class RiskBot extends TelegramLongPollingBot {
     private final RiskDataStorage storage;
     private final DecimalFormat df = new DecimalFormat("0.00%");
+    private final Map<String, UserState> userStates = new HashMap<>();
 
     public RiskBot() {
         this.storage = new RiskDataStorage();
@@ -43,13 +43,19 @@ public class RiskBot extends TelegramLongPollingBot {
         String text = message.getText().trim();
 
         try {
+            UserState userState = userStates.computeIfAbsent(chatId, k -> new UserState());
+
             if (text.startsWith("/")) {
                 handleCommand(chatId, text);
+                // Сбрасываем состояние при командах
+                if ("/start".equals(text) || "/help".equals(text)) {
+                    userState.reset();
+                }
             } else {
-                handleParameters(chatId, text);
+                handleParameterInput(chatId, text, userState);
             }
         } catch (Exception e) {
-            sendErrorResponse(chatId, "Произошла ошибка при обработке запроса: " + e.getMessage());
+            sendErrorResponse(chatId, "Произошла ошибка: " + e.getMessage());
         }
     }
 
@@ -66,69 +72,85 @@ public class RiskBot extends TelegramLongPollingBot {
         }
     }
 
-    private void handleParameters(String chatId, String parameters) throws TelegramApiException {
+    private void handleParameterInput(String chatId, String text, UserState userState) throws TelegramApiException {
         try {
-            List<String> params = Arrays.asList(parameters.split(",\\s*"));
+            String paramName = userState.getCurrentParameterName();
 
-            if (params.size() != 7) {
-                sendParameterPrompt(chatId);
-                return;
+            // ✅ Проверка и парсинг значения
+            if (paramName.contains("pH крови") || paramName.contains("PaO2")) {
+                Double.parseDouble(text); // просто проверка
+            } else if (paramName.contains("Возраст") ||
+                    paramName.contains("Апгар") ||
+                    paramName.contains("Вес")) {
+                Integer.parseInt(text);
+            } else if (paramName.contains("пороки") || paramName.contains("Интубация")) {
+                int value = Integer.parseInt(text);
+                if (value != 0 && value != 1) {
+                    throw new IllegalArgumentException("Введите 0 или 1.");
+                }
             }
 
-            // Парсинг и валидация параметров
-            double pH = parseAndValidate(chatId, params.get(0), "ph");
-            int возрастЧасы = (int) parseAndValidate(chatId, params.get(1), "age");
-            int апгар = (int) parseAndValidate(chatId, params.get(2), "apgar");
-            int вес = (int) parseAndValidate(chatId, params.get(3), "weight");
-            double paO2 = parseAndValidate(chatId, params.get(4), "pao2");
-            int пороки = parseBinary(chatId, params.get(5), "malformations");
-            int интубация = parseBinary(chatId, params.get(6), "intubation");
+            // ✅ Добавляем только если всё прошло успешно
+            userState.addParameterValue(text);
 
-            // Расчет показателей
+            // ✅ Проверяем — завершены ли все параметры
+            if (userState.isComplete()) {
+                processFinalParameters(chatId, userState);
+            } else {
+                sendResponse(chatId, "Введите следующий параметр: " + getFormattedParameterPrompt(userState.getCurrentParameterName()));
+            }
+
+        } catch (NumberFormatException e) {
+            sendResponse(chatId, "⚠️ Неверный формат. Пожалуйста, введите корректное числовое значение.");
+        } catch (IllegalArgumentException e) {
+            sendResponse(chatId, "⚠️ " + e.getMessage());
+        }
+    }
+
+    private String getFormattedParameterPrompt(String paramName) {
+        switch (paramName) {
+            case "pH крови":
+                return "pH крови (уровень кислотности крови; например: 7.2)";
+            case "Возраст в часах":
+                return "Возраст в часах (возраст новорождённого на момент оценки; например: 5)";
+            case "Оценка по Апгар":
+                return "Оценка по шкале Апгар (от 0 до 10; оценивает состояние ребёнка сразу после рождения, например: 6)";
+            case "Вес при рождении":
+                return "Вес при рождении в граммах (например: 3200)";
+            case "PaO2":
+                return "PaO2 в кПа (парциальное давление кислорода в артериальной крови; например: 4.5)";
+            case "Врожденные пороки (0 - нет, 1 - да)":
+                return "Врожденные пороки: введите 0 (нет пороков) или 1 (есть пороки)";
+            case "Интубация (0 - нет, 1 - да)":
+                return "Интубация: введите 0 (не была проведена) или 1 (проводилась интубация)";
+            default:
+                return paramName;
+        }
+    }
+
+    private void processFinalParameters(String chatId, UserState userState) throws TelegramApiException {
+        try {
+            List<String> params = userState.parameterValues;
+            double pH = Double.parseDouble(params.get(0));
+            int возрастЧасы = Integer.parseInt(params.get(1));
+            int апгар = Integer.parseInt(params.get(2));
+            int вес = Integer.parseInt(params.get(3));
+            double paO2 = Double.parseDouble(params.get(4));
+            int пороки = Integer.parseInt(params.get(5));
+            int интубация = Integer.parseInt(params.get(6));
+
             int баллы = calculateHermansenScore(pH, возрастЧасы, апгар, вес, paO2, пороки, интубация);
             double вероятность = calculateMortalityProbability(pH, возрастЧасы, апгар, вес, paO2, пороки, интубация);
 
-            // Формирование ответа
             String результат = buildAssessmentResponse(баллы, вероятность, pH, возрастЧасы, апгар, вес, paO2, пороки, интубация);
             sendResponse(chatId, результат);
 
-        } catch (NumberFormatException e) {
-            sendResponse(chatId, "Ошибка формата чисел. Используйте точку для десятичных дробей (например 7.35)");
-        } catch (IllegalArgumentException e) {
-            // Сообщения валидации уже отправлены
+            // Сбрасываем состояние после завершения
+            userState.reset();
+        } catch (Exception e) {
+            sendErrorResponse(chatId, "Ошибка расчета: " + e.getMessage());
+            userState.reset();
         }
-    }
-
-    private double parseAndValidate(String chatId, String значение, String paramName)
-            throws TelegramApiException, NumberFormatException, IllegalArgumentException {
-        RiskDataStorage.ParameterConfig config = storage.getParameterConfig(paramName);
-        try {
-            double число = Double.parseDouble(значение);
-
-            // Проверка что значение попадает в какой-либо диапазон
-            config.findRange(число);
-            return число;
-
-        } catch (NumberFormatException e) {
-            sendResponse(chatId, "Некорректное значение для " + config.getDescription() +
-                    ". Введите число в формате 7.35");
-            throw e;
-        } catch (IllegalArgumentException e) {
-            sendResponse(chatId, "Значение " + значение + " вне допустимого диапазона для " +
-                    config.getDescription());
-            throw e;
-        }
-    }
-
-    private int parseBinary(String chatId, String значение, String paramName)
-            throws TelegramApiException, NumberFormatException, IllegalArgumentException {
-        int число = (int) parseAndValidate(chatId, значение, paramName);
-        if (число != 0 && число != 1) {
-            sendResponse(chatId, "Для параметра " + storage.getParameterConfig(paramName).getDescription() +
-                    " введите 0 (нет) или 1 (да)");
-            throw new IllegalArgumentException();
-        }
-        return число;
     }
 
     private int calculateHermansenScore(double pH, int возрастЧасы, int апгар, int вес,
@@ -177,6 +199,9 @@ public class RiskBot extends TelegramLongPollingBot {
 
         ответ.append("\n🚑 Рекомендации:\n").append(уровеньРиска.getRecommendation());
 
+        // Добавлено напоминание
+        ответ.append("\n\n🔁 Для нового тестирования введите /start");
+
         return ответ.toString();
     }
 
@@ -187,25 +212,14 @@ public class RiskBot extends TelegramLongPollingBot {
                 paramName, value, config.getUnit(), range.getComment(), range.getScore());
     }
 
-    private void sendParameterPrompt(String chatId) throws TelegramApiException {
-        String message = "Пожалуйста, введите все 7 параметров через запятую в следующем порядке:\n\n" +
-                "1. Уровень pH крови (например: 7.35)\n" +
-                "2. Возраст ребенка в часах (например: 3)\n" +
-                "3. Оценка по шкале Апгар на 1-й минуте (0-10)\n" +
-                "4. Вес при рождении в граммах (например: 2500)\n" +
-                "5. Уровень PaO2 в кПа (например: 5.2)\n" +
-                "6. Наличие врожденных пороков (1 - есть, 0 - нет)\n" +
-                "7. Интубирован ли ребенок (1 - да, 0 - нет)\n\n" +
-                "Пример ввода: 7.25, 2, 5, 1800, 4.8, 0, 1";
-        sendResponse(chatId, message);
-    }
-
     private void sendWelcomeMessage(String chatId) throws TelegramApiException {
+        UserState userState = userStates.computeIfAbsent(chatId, k -> new UserState());
+        userState.reset();
+
         String message = "👶 Добро пожаловать в бот оценки риска транспортировки новорожденных!\n\n" +
-                "Этот бот рассчитывает риск по шкале Hermansen и вероятность неблагоприятного исхода " +
-                "на основании 7 ключевых параметров.\n\n" +
-                "Для начала работы введите все параметры через запятую в указанном порядке.\n\n" +
-                "Введите /help для подробной инструкции или начните сразу с ввода параметров.";
+                "Бот будет запрашивать параметры по одному.\n\n" +
+                "Введите /help для подробной инструкции или начните сразу с ввода параметров. \n\n" +
+                "Первый параметр: " + userState.getCurrentParameterName() + "(уровень кислотности крови; например: 7.2)";
         sendResponse(chatId, message);
     }
 
@@ -229,7 +243,8 @@ public class RiskBot extends TelegramLongPollingBot {
                 "   - Вероятность неблагоприятного исхода\n" +
                 "   - Подробную интерпретацию\n" +
                 "   - Рекомендации по транспортировке\n\n" +
-                "Пример ввода: 7.25, 2, 5, 1800, 4.8, 0, 1";
+                "Пример ввода: 7.25, 2, 5, 1800, 4.8, 0, 1 \n\n" +
+                "Если вы ознакомились с инструкцией, введите /start, чтобы начать ввод параметров";
         sendResponse(chatId, message);
     }
 
@@ -245,6 +260,38 @@ public class RiskBot extends TelegramLongPollingBot {
             sendResponse(chatId, "⚠️ " + text);
         } catch (TelegramApiException e) {
             e.printStackTrace();
+        }
+    }
+
+    private static class UserState {
+        private int currentParamIndex = 0;
+        private final List<String> parameterValues = new ArrayList<>();
+        private final String[] parameterNames = {
+                "pH крови",
+                "Возраст в часах",
+                "Оценка по Апгар",
+                "Вес при рождении",
+                "PaO2",
+                "Врожденные пороки (0 - нет, 1 - да)",
+                "Интубация (0 - нет, 1 - да)"
+        };
+
+        public String getCurrentParameterName() {
+            return parameterNames[currentParamIndex];
+        }
+
+        public void addParameterValue(String value) {
+            parameterValues.add(value);
+            currentParamIndex++;
+        }
+
+        public boolean isComplete() {
+            return currentParamIndex >= parameterNames.length;
+        }
+
+        public void reset() {
+            currentParamIndex = 0;
+            parameterValues.clear();
         }
     }
 }
