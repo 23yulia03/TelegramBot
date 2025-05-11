@@ -1,0 +1,32 @@
+{
+  "risk_levels": [
+    {
+      "minScore": 0,
+      "maxScore": 9,
+      "diagnosis": "Низкий риск",
+      "recommendation": "Стандартные меры предосторожности при транспортировке",
+      "probabilityRange": "0-5%"
+    },
+    {
+      "minScore": 10,
+      "maxScore": 19,
+      "diagnosis": "Умеренный риск",
+      "recommendation": "Транспортировка с мониторингом жизненных показателей",
+      "probabilityRange": "5-15%"
+    },
+    {
+      "minScore": 20,
+      "maxScore": 29,
+      "diagnosis": "Высокий риск",
+      "recommendation": "Требуется сопровождение реанимационной бригады",
+      "probabilityRange": "15-30%"
+    },
+    {
+      "minScore": 30,
+      "maxScore": 40,
+      "diagnosis": "Критический риск",
+      "recommendation": "Экстренная транспортировка в реанимационном сопровождении",
+      "probabilityRange": "30-100%"
+    }
+  ]
+}
