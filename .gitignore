@@ -1,3 +1,4 @@
+### Target directories ###
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
@@ -36,3 +37,10 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Environment files ###
+# Исключаем файлы с токенами и чувствительными данными
+*.env
+token.env
+secrets.*
+config/application-secrets.*
