@@ -21,7 +21,7 @@ public class RiskBot extends TelegramLongPollingBot {
 
     @Override
     public String getBotUsername() {
-        return "NeoRisk_bot";
+        return "NeoRisk2_bot";
     }
 
     @Override
